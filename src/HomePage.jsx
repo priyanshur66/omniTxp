@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import { useOkto } from "okto-sdk-react";
 import { Loader2, Send, CheckCircle2, XCircle } from "lucide-react";
 
@@ -11,28 +11,40 @@ const HomePage = ({ authToken, handleLogout }) => {
   const { transferTokens, orderHistory } = useOkto();
 
   const SUPPORTED_NETWORKS = {
-    "APTOS": ["aptos", "apt"],
-    "APTOS_TESTNET": ["aptos testnet", "aptos test", "aptostestnet", "aptos-testnet"],
-    "BASE": ["base"],
-    "POLYGON": ["polygon", "matic"],
-    "POLYGON_TESTNET_AMOY": ["polygon testnet", "polygon test", "polygon-testnet"],
-    "SOLANA": ["solana", "sol"],
-    "SOLANA_DEVNET": ["solana devnet", "solana dev", "solana-devnet"]
+    APTOS: ["aptos", "apt"],
+    APTOS_TESTNET: [
+      "aptos testnet",
+      "aptos test",
+      "aptostestnet",
+      "aptos-testnet",
+    ],
+    BASE: ["base"],
+    POLYGON: ["polygon", "matic"],
+    POLYGON_TESTNET_AMOY: [
+      "polygon testnet",
+      "polygon test",
+      "polygon-testnet",
+    ],
+    SOLANA: ["solana", "sol"],
+    SOLANA_DEVNET: ["solana devnet", "solana dev", "solana-devnet"],
   };
 
   const processNaturalLanguage = async (input) => {
     try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.REACT_APP_OPENAI_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: "gpt-3.5-turbo",
-          messages: [{
-            role: "system",
-            content: `Extract transfer details from user input using these exact rules:
+      const response = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.REACT_APP_OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-3.5-turbo",
+            messages: [
+              {
+                role: "system",
+                content: `Extract transfer details from user input using these exact rules:
 
 1. Format: "transfer {quantity} {token} to {address} on {network}"
 
@@ -64,38 +76,48 @@ Example output:
   "token_address": " ",
   "quantity": 2,
   "recipient_address": "0xc3df44663b7541bc5ce2793c12814dad216cdf05855c66381a8cb797e6bf9656"
-}`
-          }, {
-            role: "user",
-            content: input
-          }],
-          temperature: 0.1
-        })
-      });
+}`,
+              },
+              {
+                role: "user",
+                content: input,
+              },
+            ],
+            temperature: 0.1,
+          }),
+        }
+      );
 
       const data = await response.json();
       const parsedDetails = JSON.parse(data.choices[0].message.content);
-      
+
       // Validate network name
-      if (!Object.keys(SUPPORTED_NETWORKS).includes(parsedDetails.network_name)) {
+      if (
+        !Object.keys(SUPPORTED_NETWORKS).includes(parsedDetails.network_name)
+      ) {
         throw new Error(`Unsupported network: ${parsedDetails.network_name}`);
       }
 
       return parsedDetails;
     } catch (error) {
-      throw new Error("Failed to process natural language input: " + error.message);
+      throw new Error(
+        "Failed to process natural language input: " + error.message
+      );
     }
   };
 
   const executeTransfer = async (input) => {
     setIsProcessing(true);
-    setTransferStatus({ status: "PROCESSING", message: "Initiating transfer..." });
+    setTransferStatus({
+      status: "PROCESSING",
+      message: "Initiating transfer...",
+    });
     setShowStatusModal(true);
 
     try {
       const transferDetails = await processNaturalLanguage(input);
       const result = await executeAiTokenTransfer(transferDetails);
-      
+
       if (result.success && result.data?.orderId) {
         setCurrentOrderId(result.data.orderId);
         await monitorTransferStatus(result.data.orderId);
@@ -105,7 +127,7 @@ Example output:
     } catch (error) {
       setTransferStatus({
         status: "FAILED",
-        error: error.message
+        error: error.message,
       });
     } finally {
       setIsProcessing(false);
@@ -115,7 +137,7 @@ Example output:
   const monitorTransferStatus = async (orderId) => {
     let attempts = 0;
     const maxAttempts = 20; // Maximum number of attempts (1 minute with 3s intervals)
-    
+
     const checkStatus = async () => {
       try {
         const response = await orderHistory({ order_id: orderId });
@@ -129,9 +151,12 @@ Example output:
             status,
             hash: job.transaction_hash,
             timestamp: job.updated_at,
-            message: status === "SUCCESS" ? "Transaction completed successfully" :
-                     status === "FAILED" ? "Transaction failed" :
-                     "Processing transaction..."
+            message:
+              status === "SUCCESS"
+                ? "Transaction completed successfully"
+                : status === "FAILED"
+                ? "Transaction failed"
+                : "Processing transaction...",
           });
 
           return status === "SUCCESS" || status === "FAILED";
@@ -140,28 +165,28 @@ Example output:
         attempts++;
         setTransferStatus({
           status: "PROCESSING",
-          message: `Checking transaction status (attempt ${attempts}/${maxAttempts})...`
+          message: `Checking transaction status (attempt ${attempts}/${maxAttempts})...`,
         });
 
         return false;
       } catch (error) {
         console.error("Status check error:", error);
         attempts++;
-        
+
         if (attempts >= maxAttempts) {
           setTransferStatus({
             status: "FAILED",
-            error: "Failed to get transaction status after multiple attempts"
+            error: "Failed to get transaction status after multiple attempts",
           });
           return true;
         }
-        
+
         return false;
       }
     };
 
     while (!(await checkStatus()) && attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise((resolve) => setTimeout(resolve, 3000));
     }
   };
 
@@ -172,9 +197,17 @@ Example output:
     recipient_address,
   }) => {
     try {
-      console.log("Transfer details:", network_name, quantity, recipient_address ,token_address);
+      console.log(
+        "Transfer details:",
+        network_name,
+        quantity,
+        recipient_address,
+        token_address
+      );
       if (!network_name || !quantity || !recipient_address) {
-        throw new Error("Network, quantity, and recipient address are required");
+        throw new Error(
+          "Network, quantity, and recipient address are required"
+        );
       }
 
       quantity = String(quantity);
@@ -189,113 +222,130 @@ Example output:
       return {
         success: true,
         data: {
-          orderId: response.orderId
-        }
+          orderId: response.orderId,
+        },
       };
     } catch (error) {
       return {
         success: false,
-        error: error.message || "Transfer failed"
+        error: error.message || "Transfer failed",
       };
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto p-4">
-      <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-        <div className="p-6">
-          <h1 className="text-2xl font-bold text-center text-gray-800 mb-6">
-            Token Transfer Assistant
-          </h1>
-          
-          <div className="space-y-4">
-            <p className="text-gray-600 text-sm">
-              Describe your transfer in natural language. For example:
-              <span className="block mt-1 text-gray-800 italic">
-                "Transfer 2 APT to 0xc3df44663b7541bc5ce2793c12814dad216cdf05855c66381a8cb797e6bf9656 on Aptos Testnet"
-              </span>
-            </p>
-            
-            <div className="flex gap-2">
+    <div className="min-h-screen bg-black text-white">
+      <div className="max-w-sm mx-auto pt-8">
+        <div className="bg-black rounded-lg overflow-hidden">
+          <div className="p-4 space-y-6">
+            <div className="text-center space-y-2">
+              <h1 className="text-2xl font-bold text-purple-500">Omnify</h1>
+              <p className="text-gray-400 text-sm">
+                Pay on aptos with any token
+              </p>
+            </div>
+
+            <div className="space-y-4">
               <input
                 value={userInput}
                 onChange={(e) => setUserInput(e.target.value)}
-                placeholder="Describe your transfer..."
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Your prompt"
+                className="w-full px-4 py-3 bg-gray-900 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
                 disabled={isProcessing}
               />
-              <button 
+
+              <button
                 onClick={() => executeTransfer(userInput)}
                 disabled={isProcessing || !userInput}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[44px]"
+                className="w-full py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isProcessing ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <Send className="h-5 w-5" />
-                )}
+                Execute
               </button>
+            </div>
+
+            <div className="text-center text-sm text-gray-500">
+              Powered by octo
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Status Modal */}
-      {showStatusModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <div className="text-lg font-semibold mb-4 flex items-center gap-2">
-              {transferStatus?.status === "SUCCESS" ? (
-                <div className="flex items-center gap-2 text-green-600">
-                  <CheckCircle2 className="h-5 w-5" />
-                  <span>Transfer Successful</span>
-                </div>
-              ) : transferStatus?.status === "FAILED" ? (
-                <div className="flex items-center gap-2 text-red-600">
-                  <XCircle className="h-5 w-5" />
-                  <span>Transfer Failed</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 text-gray-600">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span>{transferStatus?.message || "Processing Transfer..."}</span>
-                </div>
-              )}
-            </div>
+        {/* Status Modal */}
+        {showStatusModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center p-4">
+            <div className="max-w-sm w-full bg-black p-6 rounded-lg space-y-4">
+              <div className="text-center space-y-2">
+                <h1 className="text-2xl font-bold text-purple-500">Omnify</h1>
+                <p className="text-gray-400 text-sm">
+                  Pay on aptos with any token
+                </p>
+              </div>
 
-            <div className="mt-4">
-              {transferStatus?.status === "SUCCESS" ? (
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-gray-700">Transaction Hash:</p>
-                  <div className="bg-gray-50 rounded-md p-3 font-mono text-sm break-all">
-                    {transferStatus.hash}
+              <div className="flex justify-center">
+                {transferStatus?.status === "SUCCESS" ? (
+                  <div className="text-green-400 w-16 h-16">
+                    <CheckCircle2 className="w-full h-full" />
                   </div>
-                  <p className="text-sm text-gray-500 mt-2">
-                    Completed at: {new Date(transferStatus.timestamp).toLocaleString()}
-                  </p>
-                </div>
-              ) : transferStatus?.status === "FAILED" ? (
-                <p className="text-red-600">{transferStatus.error}</p>
-              ) : (
-                <p className="text-gray-600">{transferStatus?.message || "Please wait while we process your transfer..."}</p>
-              )}
-            </div>
+                ) : transferStatus?.status === "FAILED" ? (
+                  <div className="text-red-400 w-16 h-16">
+                    <XCircle className="w-full h-full" />
+                  </div>
+                ) : (
+                  <div className="text-purple-500 w-16 h-16">
+                    <Loader2 className="w-full h-full animate-spin" />
+                  </div>
+                )}
+              </div>
 
-            {(transferStatus?.status === "SUCCESS" || transferStatus?.status === "FAILED") && (
-              <button
-                onClick={() => {
-                  setShowStatusModal(false);
-                  setTransferStatus(null);
-                  setCurrentOrderId(null);
-                }}
-                className="mt-6 w-full px-4 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-              >
-                Close
-              </button>
-            )}
+              <div className="text-center">
+                {transferStatus?.status === "SUCCESS" ? (
+                  <div className="space-y-4">
+                    <p className="text-lg font-medium text-white">
+                      Transaction successful!
+                    </p>
+                    <button
+                      onClick={() => {
+                        /* Add copy functionality */
+                      }}
+                      className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 focus:outline-none"
+                    >
+                      copy hash
+                    </button>
+                  </div>
+                ) : transferStatus?.status === "FAILED" ? (
+                  <div className="space-y-4">
+                    <p className="text-lg font-medium text-red-400">
+                      Transaction failed
+                    </p>
+                    <p className="text-gray-400">{transferStatus.error}</p>
+                  </div>
+                ) : (
+                  <p className="text-lg font-medium text-white">
+                    Processing transaction...
+                  </p>
+                )}
+              </div>
+
+              {(transferStatus?.status === "SUCCESS" ||
+                transferStatus?.status === "FAILED") && (
+                <button
+                  onClick={() => {
+                    setShowStatusModal(false);
+                    setTransferStatus(null);
+                    setCurrentOrderId(null);
+                  }}
+                  className="w-full py-3 bg-gray-800 text-white rounded-lg hover:bg-gray-700 focus:outline-none"
+                >
+                  Close
+                </button>
+              )}
+
+              <div className="text-center text-sm text-gray-500">
+                Powered by octo
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
