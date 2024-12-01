@@ -21,43 +21,43 @@ const LoginPage = ({ setAuthToken }) => {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center px-4">
-      <div className="w-full max-w-sm space-y-12 flex flex-col items-center">
-        {/* Logo and Title */}
-        <div className="text-center space-y-2">
-          <h1 className="text-4xl font-bold text-purple-500 mb-2">
-            Omnify
-          </h1>
-          <p className="text-gray-400 text-lg">
-            Pay Anyone on aptos
-          </p>
-        </div>
+    <div className="min-h-screen bg-black text-white flex flex-col justify-between">
+      {/* Main Content */}
+      <div className="flex-grow flex flex-col items-center justify-center px-4">
+        <div className="w-full max-w-sm space-y-12 flex flex-col items-center">
+          {/* Logo and Title */}
+          <div className="text-center space-y-2">
+            <h1 className="text-6xl font-bold text-purple-500 mb-24">
+              Omnify
+            </h1>
+            <p className="text-gray-200 text-xl">Pay Anyone on aptos</p>
+          </div>
 
-        {/* Google Login */}
-        <div className="">
-          <GoogleLogin
-            onSuccess={handleGoogleLogin}
-            onError={(error) => {
-              console.error('Login Failed', error);
-            }}
-            useOneTap
-            type="standard"
-            theme="filled_black"
-            size="medium"
-            width="60%"
-            text="continue_with"
-            shape="pill"
-            logo_alignment="left"
-          />
-        </div>
-
-        {/* Footer */}
-        <div className="text-center">
-          <p className="text-gray-500 text-sm">
-            Powered by octo
-          </p>
+          {/* Google Login */}
+          <div>
+            <GoogleLogin
+              onSuccess={handleGoogleLogin}
+              onError={(error) => {
+                console.error('Login Failed', error);
+              }}
+              useOneTap
+              type="standard"
+              theme="filled_black"
+              size="large"
+              width="220px"
+              height="100%"
+              text="continue_with"
+              shape="pill"
+              logo_alignment="left"
+            />
+          </div>
         </div>
       </div>
+
+      {/* Footer */}
+      <footer className="text-center mb-12 py-4">
+        <p className="text-gray-500 text-sm">Powered by octo</p>
+      </footer>
     </div>
   );
 };

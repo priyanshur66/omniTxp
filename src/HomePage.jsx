@@ -1,6 +1,17 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useOkto } from "okto-sdk-react";
-import { Loader2, Send, CheckCircle2, XCircle } from "lucide-react";
+import {
+  Loader2,
+  Send,
+  CheckCircle2,
+  XCircle,
+  Copy,
+  X,
+  User,
+  UserCircle,
+  Plus,
+  Trash2,
+} from "lucide-react";
 
 const HomePage = ({ authToken, handleLogout }) => {
   const [userInput, setUserInput] = useState("");
@@ -8,8 +19,70 @@ const HomePage = ({ authToken, handleLogout }) => {
   const [currentOrderId, setCurrentOrderId] = useState(null);
   const [transferStatus, setTransferStatus] = useState(null);
   const [showStatusModal, setShowStatusModal] = useState(false);
-  const { transferTokens, orderHistory } = useOkto();
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [userData, setUserData] = useState(null);
+  const [portfolioData, setPortfolioData] = useState(null);
+  const [walletData, setWalletData] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
+  const [contacts, setContacts] = useState([]);
+  const [newContact, setNewContact] = useState({ name: "", address: "" });
 
+  const {
+    transferTokens,
+    orderHistory,
+    getUserDetails,
+    getPortfolio,
+    createWallet,
+  } = useOkto();
+
+  // Load contacts from localStorage on component mount
+  useEffect(() => {
+    const savedContacts = localStorage.getItem("contacts");
+    if (savedContacts) {
+      setContacts(JSON.parse(savedContacts));
+    }
+  }, []);
+
+  // Save contacts to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem("contacts", JSON.stringify(contacts));
+  }, [contacts]);
+
+  const addContact = () => {
+    if (newContact.name && newContact.address) {
+      setContacts([...contacts, newContact]);
+      setNewContact({ name: "", address: "" });
+    }
+  };
+
+  const removeContact = (index) => {
+    const updatedContacts = contacts.filter((_, i) => i !== index);
+    setContacts(updatedContacts);
+  };
+
+  const fetchUserData = async () => {
+    setIsLoading(true);
+    try {
+      const [details, portfolio, wallets] = await Promise.all([
+        getUserDetails(),
+        getPortfolio(),
+        createWallet(),
+      ]);
+      setUserData(details);
+      setPortfolioData(portfolio);
+      setWalletData(wallets);
+    } catch (error) {
+      console.error("Error fetching user data:", error);
+    }
+    setIsLoading(false);
+  };
+
+  const handleCopyAddress = async (address) => {
+    await navigator.clipboard.writeText(address);
+    setCopyStatus(address);
+    setTimeout(() => setCopyStatus(""), 2000);
+  };
   const SUPPORTED_NETWORKS = {
     APTOS: ["aptos", "apt"],
     APTOS_TESTNET: [
@@ -29,8 +102,109 @@ const HomePage = ({ authToken, handleLogout }) => {
     SOLANA_DEVNET: ["solana devnet", "solana dev", "solana-devnet"],
   };
 
+  const findClosestContactMatch = (inputText) => {
+    console.log("Finding contact match for input:", inputText);
+    console.log("Available contacts:", contacts);
+
+    // Extract potential recipient name using various payment phrases
+    const paymentPatterns = [
+      /(?:pay|send|transfer|give)\s+([^0-9][^\s]+(?:\s+[^\s]+)*?)(?:\s+\d+|\s+on\s|$)/i, // Matches: pay NAME amount/on
+      /(?:to|for)\s+([^0-9][^\s]+(?:\s+[^\s]+)*?)(?:\s+on\s|$)/i, // Matches: to NAME on
+    ];
+
+    let potentialName = null;
+    for (const pattern of paymentPatterns) {
+      const match = inputText.match(pattern);
+      if (match) {
+        potentialName = match[1].trim().toLowerCase();
+        console.log(
+          "Found potential name using pattern:",
+          pattern,
+          "Name:",
+          potentialName
+        );
+        break;
+      }
+    }
+
+    if (!potentialName) {
+      console.log("No recipient found in input");
+      return null;
+    }
+
+    console.log("Potential recipient name:", potentialName);
+
+    // Find the most similar contact name
+    let bestMatch = null;
+    let highestSimilarity = 0;
+
+    contacts.forEach((contact) => {
+      const similarity = stringSimilarity(
+        contact.name.toLowerCase(),
+        potentialName
+      );
+      console.log(`Similarity for ${contact.name}:`, similarity);
+
+      if (similarity > highestSimilarity && similarity > 0.5) {
+        // Threshold of 0.5
+        highestSimilarity = similarity;
+        bestMatch = contact;
+      }
+    });
+
+    console.log("Best matching contact:", bestMatch);
+    return bestMatch;
+  };
+
+  const stringSimilarity = (str1, str2) => {
+    // If one string contains the other, consider it a high match
+    if (str1.includes(str2) || str2.includes(str1)) {
+      return 0.9;
+    }
+
+    // Simple word match - if all words in one string appear in the other
+    const words1 = str1.split(" ");
+    const words2 = str2.split(" ");
+    const matchingWords = words1.filter((word) => words2.includes(word));
+    if (matchingWords.length > 0) {
+      return matchingWords.length / Math.max(words1.length, words2.length);
+    }
+
+    return 0;
+  };
+
   const processNaturalLanguage = async (input) => {
+    console.log("Processing input:", input);
+
     try {
+      // First try to find a contact match
+      const matchedContact = findClosestContactMatch(input);
+      console.log("Matched contact:", matchedContact);
+
+      // Convert the input to the format expected by OpenAI
+      let processedInput = input;
+      if (matchedContact) {
+        // Replace various payment phrases with "transfer" format
+        processedInput = processedInput.replace(
+          /(?:pay|send|transfer|give)\s+([^0-9]+?)(?=\s+\d+)/i,
+          `transfer $1 to ${matchedContact.address}`
+        );
+
+        // If the above didn't work, try alternative formats
+        if (!processedInput.includes(matchedContact.address)) {
+          processedInput = processedInput.replace(
+            /(?:pay|send|transfer|give)\s+([^0-9]+)(\d+)/i,
+            `transfer $2 to ${matchedContact.address}`
+          );
+        }
+
+        console.log(
+          "Processed input after contact replacement:",
+          processedInput
+        );
+      }
+
+      console.log("Sending to OpenAI:", processedInput);
       const response = await fetch(
         "https://api.openai.com/v1/chat/completions",
         {
@@ -67,20 +241,11 @@ const HomePage = ({ authToken, handleLogout }) => {
   "token_address": " ",
   "quantity": <number>,
   "recipient_address": "<full_address>"
-}
-
-Example input: "transfer 2 apt to 0xc3df44663b7541bc5ce2793c12814dad216cdf05855c66381a8cb797e6bf9656 on aptos testnet"
-Example output:
-{
-  "network_name": "APTOS_TESTNET",
-  "token_address": " ",
-  "quantity": 2,
-  "recipient_address": "0xc3df44663b7541bc5ce2793c12814dad216cdf05855c66381a8cb797e6bf9656"
 }`,
               },
               {
                 role: "user",
-                content: input,
+                content: processedInput,
               },
             ],
             temperature: 0.1,
@@ -89,23 +254,44 @@ Example output:
       );
 
       const data = await response.json();
-      const parsedDetails = JSON.parse(data.choices[0].message.content);
+      console.log("OpenAI response:", data);
 
-      // Validate network name
+      const parsedDetails = JSON.parse(data.choices[0].message.content);
+      console.log("Parsed transfer details:", parsedDetails);
+
+      // Override the recipient_address with the matched contact's address
+      if (matchedContact) {
+        parsedDetails.recipient_address = matchedContact.address;
+      }
+
       if (
         !Object.keys(SUPPORTED_NETWORKS).includes(parsedDetails.network_name)
       ) {
         throw new Error(`Unsupported network: ${parsedDetails.network_name}`);
       }
 
+      // If we used a contact, verify network compatibility
+      if (matchedContact) {
+        console.log(
+          "Verifying network compatibility for contact:",
+          matchedContact.network,
+          parsedDetails.network_name
+        );
+        if (matchedContact.network !== parsedDetails.network_name) {
+          throw new Error(
+            `Network mismatch: Transfer is on ${parsedDetails.network_name} but contact ${matchedContact.name} is on ${matchedContact.network}`
+          );
+        }
+      }
+
       return parsedDetails;
     } catch (error) {
+      console.error("Error in processNaturalLanguage:", error);
       throw new Error(
         "Failed to process natural language input: " + error.message
       );
     }
   };
-
   const executeTransfer = async (input) => {
     setIsProcessing(true);
     setTransferStatus({
@@ -234,118 +420,280 @@ Example output:
   };
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="max-w-sm mx-auto pt-8">
-        <div className="bg-black rounded-lg overflow-hidden">
-          <div className="p-4 space-y-6">
-            <div className="text-center space-y-2">
-              <h1 className="text-2xl font-bold text-purple-500">Omnify</h1>
-              <p className="text-gray-400 text-sm">
-                Pay on aptos with any token
-              </p>
+    <div className="min-h-screen bg-black text-white flex flex-col justify-between">
+      {/* Main Content */}
+      <div className="flex-grow flex flex-col items-center justify-center px-4">
+        <div className="w-full max-w-lg space-y-12 flex flex-col items-center">
+          {/* Header with Profile Button */}
+          <div className="absolute top-4 right-4">
+            <button
+              onClick={() => {
+                setShowProfileModal(true);
+                fetchUserData();
+              }}
+              className="p-3 bg-purple-600 rounded-full hover:bg-purple-700 focus:outline-none"
+            >
+              <User className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Main Content */}
+          <div className="text-center space-y-2">
+            <h1 className="text-6xl font-bold text-purple-500 mb-24">Omnify</h1>
+            <p className="text-gray-200 text-2xl mb-8">
+              Pay on aptos with any token
+            </p>
+          </div>
+
+          {/* Input and Execute Button */}
+          <div className="w-full space-y-6">
+            <input
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              placeholder="Your prompt"
+              className="w-full px-8 py-6 bg-gray-900 rounded-full text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 text-2xl"
+              disabled={isProcessing}
+            />
+
+            <button
+              onClick={() => executeTransfer(userInput)}
+              disabled={isProcessing || !userInput}
+              className="w-full py-6 bg-purple-600 text-white rounded-full hover:bg-purple-700 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed text-2xl font-medium"
+            >
+              Execute
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Profile Modal */}
+      {showProfileModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center p-4 z-50">
+          <div className="max-w-2xl w-full bg-gray-900 rounded-2xl relative max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-gray-800">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-purple-500">Profile</h2>
+                <button
+                  onClick={() => setShowProfileModal(false)}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <div className="mt-4">
+                <p className="text-xl text-gray-200">
+                  {userData?.name || "User"}
+                </p>
+                <p className="text-gray-400">
+                  {userData?.email || "Email not available"}
+                </p>
+              </div>
             </div>
 
-            <div className="space-y-4">
-              <input
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                placeholder="Your prompt"
-                className="w-full px-4 py-3 bg-gray-900 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
-                disabled={isProcessing}
-              />
+            {/* Modal Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {isLoading ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="w-12 h-12 animate-spin text-purple-500" />
+                </div>
+              ) : (
+                <div className="space-y-8">
+                  {/* Contacts Section */}
+                  <div className="space-y-4">
+                    <h3 className="text-xl font-semibold text-gray-200">
+                      Contacts
+                    </h3>
 
-              <button
-                onClick={() => executeTransfer(userInput)}
-                disabled={isProcessing || !userInput}
-                className="w-full py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Execute
-              </button>
-            </div>
+                    {/* Add New Contact Form */}
+                    <div className="bg-gray-800 p-4 rounded-xl space-y-4">
+                      <input
+                        type="text"
+                        placeholder="Contact Name"
+                        value={newContact.name}
+                        onChange={(e) =>
+                          setNewContact({ ...newContact, name: e.target.value })
+                        }
+                        className="w-full px-4 py-2 bg-gray-700 rounded-lg text-white placeholder-gray-400"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Wallet Address"
+                        value={newContact.address}
+                        onChange={(e) =>
+                          setNewContact({
+                            ...newContact,
+                            address: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-2 bg-gray-700 rounded-lg text-white placeholder-gray-400"
+                      />
+                      <select
+                        value={newContact.network}
+                        onChange={(e) =>
+                          setNewContact({
+                            ...newContact,
+                            network: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-2 bg-gray-700 rounded-lg text-white"
+                      >
+                        {Object.keys(SUPPORTED_NETWORKS).map((network) => (
+                          <option key={network} value={network}>
+                            {network}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={addContact}
+                        disabled={!newContact.name || !newContact.address}
+                        className="w-full py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+                      >
+                        <Plus className="w-4 h-4 inline mr-2" />
+                        Add Contact
+                      </button>
+                    </div>
 
-            <div className="text-center text-sm text-gray-500">
-              Powered by octo
+                    {/* Contacts List */}
+                    <div className="space-y-2">
+                      {contacts.map((contact, index) => (
+                        <div
+                          key={index}
+                          className="bg-gray-800 p-4 rounded-xl flex justify-between items-center"
+                        >
+                          <div className="space-y-1">
+                            <p className="text-purple-400 font-medium">
+                              {contact.name}
+                            </p>
+                            <p className="text-sm text-gray-400">
+                              {contact.network}
+                            </p>
+                            <p className="text-sm text-gray-400 font-mono break-all">
+                              {contact.address}
+                            </p>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => handleCopyAddress(contact.address)}
+                              className="text-gray-400 hover:text-white p-2"
+                            >
+                              <Copy className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => removeContact(index)}
+                              className="text-gray-400 hover:text-red-500 p-2"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Wallets Section */}
+                  <div className="space-y-4">
+                    <h3 className="text-xl font-semibold text-gray-200">
+                      Your Wallets
+                    </h3>
+                    {walletData?.wallets?.map((wallet, index) => (
+                      <div
+                        key={index}
+                        className="bg-gray-800 p-4 rounded-xl space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-purple-400 font-medium">
+                            {wallet.network}
+                          </span>
+                          <button
+                            onClick={() => handleCopyAddress(wallet.address)}
+                            className="flex items-center space-x-2 text-gray-400 hover:text-white"
+                          >
+                            <Copy className="w-4 h-4" />
+                            {copyStatus === wallet.address && (
+                              <span className="text-green-400 text-sm">
+                                Copied!
+                              </span>
+                            )}
+                          </button>
+                        </div>
+                        <p className="text-sm text-gray-400 font-mono break-all">
+                          {wallet.address}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Portfolio Section */}
+                  <div className="space-y-4">
+                    <h3 className="text-xl font-semibold text-gray-200">
+                      Your Funds
+                    </h3>
+                    {portfolioData?.balances?.map((balance, index) => (
+                      <div
+                        key={index}
+                        className="bg-gray-800 p-4 rounded-xl flex justify-between items-center"
+                      >
+                        <div>
+                          <p className="text-purple-400 font-medium">
+                            {balance.token_symbol}
+                          </p>
+                          <p className="text-sm text-gray-400">
+                            {balance.network}
+                          </p>
+                        </div>
+                        <p className="text-xl font-medium">
+                          {parseFloat(balance.balance).toFixed(4)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
+      )}
 
-        {/* Status Modal */}
-        {showStatusModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center p-4">
-            <div className="max-w-sm w-full bg-black p-6 rounded-lg space-y-4">
-              <div className="text-center space-y-2">
-                <h1 className="text-2xl font-bold text-purple-500">Omnify</h1>
-                <p className="text-gray-400 text-sm">
-                  Pay on aptos with any token
-                </p>
-              </div>
-
-              <div className="flex justify-center">
-                {transferStatus?.status === "SUCCESS" ? (
-                  <div className="text-green-400 w-16 h-16">
-                    <CheckCircle2 className="w-full h-full" />
-                  </div>
-                ) : transferStatus?.status === "FAILED" ? (
-                  <div className="text-red-400 w-16 h-16">
-                    <XCircle className="w-full h-full" />
-                  </div>
-                ) : (
-                  <div className="text-purple-500 w-16 h-16">
-                    <Loader2 className="w-full h-full animate-spin" />
-                  </div>
-                )}
-              </div>
-
-              <div className="text-center">
-                {transferStatus?.status === "SUCCESS" ? (
-                  <div className="space-y-4">
-                    <p className="text-lg font-medium text-white">
-                      Transaction successful!
-                    </p>
-                    <button
-                      onClick={() => {
-                        /* Add copy functionality */
-                      }}
-                      className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 focus:outline-none"
-                    >
-                      copy hash
-                    </button>
-                  </div>
-                ) : transferStatus?.status === "FAILED" ? (
-                  <div className="space-y-4">
-                    <p className="text-lg font-medium text-red-400">
-                      Transaction failed
-                    </p>
-                    <p className="text-gray-400">{transferStatus.error}</p>
-                  </div>
-                ) : (
-                  <p className="text-lg font-medium text-white">
-                    Processing transaction...
-                  </p>
-                )}
-              </div>
-
-              {(transferStatus?.status === "SUCCESS" ||
-                transferStatus?.status === "FAILED") && (
-                <button
-                  onClick={() => {
-                    setShowStatusModal(false);
-                    setTransferStatus(null);
-                    setCurrentOrderId(null);
-                  }}
-                  className="w-full py-3 bg-gray-800 text-white rounded-lg hover:bg-gray-700 focus:outline-none"
-                >
-                  Close
-                </button>
+      {/* Status Modal - keeping the existing one */}
+      {showStatusModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center p-4 z-50">
+          <div className="max-w-md w-full bg-gray-900 p-8 rounded-2xl space-y-6">
+            <div className="text-center">
+              {transferStatus?.status === "SUCCESS" ? (
+                <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto" />
+              ) : transferStatus?.status === "FAILED" ? (
+                <XCircle className="w-12 h-12 text-red-500 mx-auto" />
+              ) : (
+                <Loader2 className="w-12 h-12 animate-spin text-purple-500 mx-auto" />
               )}
-
-              <div className="text-center text-sm text-gray-500">
-                Powered by octo
-              </div>
+              <h3 className="text-xl font-semibold mt-4">
+                {transferStatus?.message || "Processing transaction..."}
+              </h3>
+              {transferStatus?.hash && (
+                <a
+                  href={`https://explorer.aptoslabs.com/txn/${transferStatus.hash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-purple-400 hover:text-purple-300 mt-2 inline-block"
+                >
+                  View on Explorer
+                </a>
+              )}
             </div>
+            <button
+              onClick={() => setShowStatusModal(false)}
+              className="w-full py-2 bg-gray-800 text-white rounded-xl hover:bg-gray-700"
+            >
+              Close
+            </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      <footer className="text-center mb-12 py-4">
+        <p className="text-gray-500 text-lg">Powered by octo</p>
+      </footer>
     </div>
   );
 };
