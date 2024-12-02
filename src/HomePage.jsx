@@ -27,6 +27,7 @@ const HomePage = ({ authToken, handleLogout }) => {
   const [copyStatus, setCopyStatus] = useState("");
   const [contacts, setContacts] = useState([]);
   const [newContact, setNewContact] = useState({ name: "", address: "" });
+  const [storedNumber, setStoredNumber] = useState(null);
 
   const {
     transferTokens,
@@ -38,11 +39,67 @@ const HomePage = ({ authToken, handleLogout }) => {
 
   // Load contacts from localStorage on component mount
   useEffect(() => {
-    const savedContacts = localStorage.getItem("contacts");
-    if (savedContacts) {
-      setContacts(JSON.parse(savedContacts));
+    localStorage.setItem("contacts", JSON.stringify(contacts));
+  }, [contacts]);
+
+  const handleRetrieveNumber = async () => {
+    try {
+      const response = await fetch(
+        "http://localhost:3000/api/contract/execute",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            contractAddress: "0xdAaA57d9Ee79aC8856CF6C117531cD1FB2c44f73",
+            abi: [
+              {
+                inputs: [
+                  {
+                    internalType: "uint256",
+                    name: "num",
+                    type: "uint256",
+                  },
+                ],
+                name: "store",
+                outputs: [],
+                stateMutability: "nonpayable",
+                type: "function",
+              },
+              {
+                inputs: [],
+                name: "retrieve",
+                outputs: [
+                  {
+                    internalType: "uint256",
+                    name: "",
+                    type: "uint256",
+                  },
+                ],
+                stateMutability: "view",
+                type: "function",
+              },
+            ],
+            functionName: "retrieve",
+            params: [],
+            chainId: "baseSepolia",
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (data.success) {
+        setStoredNumber(data.result);
+        console.log("Retrieved number:", data.result);
+      } else {
+        console.error("Failed to retrieve number:", data.error);
+      }
+    } catch (error) {
+      console.error("Error retrieving number:", error);
     }
-  }, []);
+  };
 
   // Save contacts to localStorage whenever they change
   useEffect(() => {
@@ -175,116 +232,147 @@ const HomePage = ({ authToken, handleLogout }) => {
 
   const processNaturalLanguage = async (input) => {
     console.log("Processing input:", input);
+    const inputLower = input.toLowerCase();
+
+    // Handle Base Sepolia requests
+    if (inputLower.includes("base sepolia")) {
+      await handleRetrieveNumber();
+      return null;
+    }
 
     try {
-      // First try to find a contact match
+      // 1. Find Contact Match
       const matchedContact = findClosestContactMatch(input);
       console.log("Matched contact:", matchedContact);
 
-      // Convert the input to the format expected by OpenAI
+      // 2. Process Input Text
       let processedInput = input;
-      if (matchedContact) {
-        // Replace various payment phrases with "transfer" format
-        processedInput = processedInput.replace(
-          /(?:pay|send|transfer|give)\s+([^0-9]+?)(?=\s+\d+)/i,
-          `transfer $1 to ${matchedContact.address}`
-        );
 
-        // If the above didn't work, try alternative formats
-        if (!processedInput.includes(matchedContact.address)) {
-          processedInput = processedInput.replace(
-            /(?:pay|send|transfer|give)\s+([^0-9]+)(\d+)/i,
-            `transfer $2 to ${matchedContact.address}`
-          );
+      // Common token symbols and their variations
+      const tokenPatterns = {
+        apt: ["apt", "aptos"],
+        sol: ["sol", "solana"],
+        matic: ["matic", "polygon"],
+        eth: ["eth", "ethereum"],
+        usdc: ["usdc", "usd coin"],
+        usdt: ["usdt", "tether"],
+      };
+
+      // Network variations mapping
+      const networkVariations = {
+        "aptos mainnet": "APTOS",
+        "apt mainnet": "APTOS",
+        "aptos main": "APTOS",
+        "aptos test": "APTOS_TESTNET",
+        "aptos testnet": "APTOS_TESTNET",
+        "apt test": "APTOS_TESTNET",
+        "polygon main": "POLYGON",
+        "matic main": "POLYGON",
+        "polygon mainnet": "POLYGON",
+        "matic mainnet": "POLYGON",
+        "polygon test": "POLYGON_TESTNET_AMOY",
+        "polygon testnet": "POLYGON_TESTNET_AMOY",
+        "matic test": "POLYGON_TESTNET_AMOY",
+        "matic testnet": "POLYGON_TESTNET_AMOY",
+        "solana main": "SOLANA",
+        "sol main": "SOLANA",
+        "solana mainnet": "SOLANA",
+        "sol mainnet": "SOLANA",
+        "solana test": "SOLANA_DEVNET",
+        "solana testnet": "SOLANA_DEVNET",
+        "sol test": "SOLANA_DEVNET",
+        "sol testnet": "SOLANA_DEVNET",
+        "base mainnet": "BASE",
+        "base main": "BASE",
+      };
+
+      // 3. Extract transfer details using regex patterns
+      const patterns = {
+        // Matches: send/transfer/pay 100 APT to address
+        standard:
+          /(?:send|transfer|pay)\s+(\d+(?:\.\d+)?)\s*([a-zA-Z]+)\s+(?:to\s+)?([a-zA-Z0-9]+)/i,
+        // Matches: give address 100 APT
+        reversed:
+          /(?:give|send|transfer|pay)\s+([a-zA-Z0-9]+)\s+(\d+(?:\.\d+)?)\s*([a-zA-Z]+)/i,
+        // Matches: address 100 APT
+        simple: /([a-zA-Z0-9]+)\s+(\d+(?:\.\d+)?)\s*([a-zA-Z]+)/i,
+        // Matches: on network/chain variations
+        network:
+          /(?:on|in|using|via)\s+([a-zA-Z]+(?:\s+(?:mainnet|testnet|main|test))?)/i,
+      };
+
+      let quantity, token, address, network;
+
+      // Try each pattern until we find a match
+      for (const [patternName, pattern] of Object.entries(patterns)) {
+        if (patternName === "network") continue;
+
+        const match = inputLower.match(pattern);
+        if (match) {
+          if (patternName === "standard") {
+            [, quantity, token, address] = match;
+          } else if (patternName === "reversed") {
+            [, address, quantity, token] = match;
+          } else if (patternName === "simple") {
+            [, address, quantity, token] = match;
+          }
+          break;
         }
-
-        console.log(
-          "Processed input after contact replacement:",
-          processedInput
-        );
       }
 
-      console.log("Sending to OpenAI:", processedInput);
-      const response = await fetch(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.REACT_APP_OPENAI_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: "gpt-3.5-turbo",
-            messages: [
-              {
-                role: "system",
-                content: `Extract transfer details from user input using these exact rules:
-
-1. Format: "transfer {quantity} {token} to {address} on {network}"
-
-2. Extract these fields:
-   - quantity: number before the token symbol
-   - token_address: always use " " (single space)
-   - recipient_address: the address after "to"
-   - network_name: map to one of these exact values:
-     * "APTOS" for: aptos, apt (if no testnet mentioned)
-     * "APTOS_TESTNET" for: aptos testnet, aptos test
-     * "BASE" for: base
-     * "POLYGON" for: polygon, matic
-     * "POLYGON_TESTNET_AMOY" for: polygon testnet, polygon test
-     * "SOLANA" for: solana, sol
-     * "SOLANA_DEVNET" for: solana devnet, solana dev
-
-3. Always return this exact JSON structure:
-{
-  "network_name": "<EXACT_NETWORK_NAME>",
-  "token_address": " ",
-  "quantity": <number>,
-  "recipient_address": "<full_address>"
-}`,
-              },
-              {
-                role: "user",
-                content: processedInput,
-              },
-            ],
-            temperature: 0.1,
-          }),
+      // Extract network information
+      const networkMatch = inputLower.match(patterns.network);
+      if (networkMatch) {
+        const networkPhrase = networkMatch[1].toLowerCase();
+        network =
+          networkVariations[networkPhrase] || networkPhrase.toUpperCase();
+      } else {
+        // Default networks based on token
+        const tokenLower = token?.toLowerCase();
+        if (tokenLower) {
+          if (tokenPatterns.apt.includes(tokenLower)) network = "APTOS";
+          else if (tokenPatterns.sol.includes(tokenLower)) network = "SOLANA";
+          else if (tokenPatterns.matic.includes(tokenLower))
+            network = "POLYGON";
+          else network = "APTOS"; // Default to APTOS if no network specified
         }
-      );
-
-      const data = await response.json();
-      console.log("OpenAI response:", data);
-
-      const parsedDetails = JSON.parse(data.choices[0].message.content);
-      console.log("Parsed transfer details:", parsedDetails);
-
-      // Override the recipient_address with the matched contact's address
-      if (matchedContact) {
-        parsedDetails.recipient_address = matchedContact.address;
       }
 
-      if (
-        !Object.keys(SUPPORTED_NETWORKS).includes(parsedDetails.network_name)
-      ) {
-        throw new Error(`Unsupported network: ${parsedDetails.network_name}`);
-      }
-
-      // If we used a contact, verify network compatibility
+      // 4. Use matched contact if available
       if (matchedContact) {
-        console.log(
-          "Verifying network compatibility for contact:",
-          matchedContact.network,
-          parsedDetails.network_name
-        );
-        if (matchedContact.network !== parsedDetails.network_name) {
+        address = matchedContact.address;
+        // Verify network compatibility
+        if (matchedContact.network !== network) {
           throw new Error(
-            `Network mismatch: Transfer is on ${parsedDetails.network_name} but contact ${matchedContact.name} is on ${matchedContact.network}`
+            `Network mismatch: Transfer is on ${network} but contact ${matchedContact.name} is on ${matchedContact.network}`
           );
         }
       }
 
-      return parsedDetails;
+      // 5. Validate extracted data
+      if (!quantity || !token || !address || !network) {
+        throw new Error(
+          "Could not extract complete transfer details from input"
+        );
+      }
+
+      // 6. Format response
+      const transferDetails = {
+        network_name: network,
+        token_address: " ", // As per requirement
+        quantity: parseFloat(quantity),
+        recipient_address: address,
+      };
+
+      // 7. Validate network support
+      if (
+        !Object.keys(SUPPORTED_NETWORKS).includes(transferDetails.network_name)
+      ) {
+        throw new Error(`Unsupported network: ${transferDetails.network_name}`);
+      }
+
+      console.log("Parsed transfer details:", transferDetails);
+      return transferDetails;
     } catch (error) {
       console.error("Error in processNaturalLanguage:", error);
       throw new Error(
